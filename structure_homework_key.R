@@ -14,11 +14,13 @@ library(rvest)
 
 # Scrape the data for the new rolling stone top 500 list
 url <- "https://stuarte.co/2021/2021-full-list-rolling-stones-top-500-songs-of-all-time-updated/"
-rs_new <- url %>% read_html() %>% html_nodes(xpath='//*[@id="post-14376"]/div[2]/div[2]/table') %>% html_table() %>% pluck(1)
+rs_new <- url %>% 
+  httr::GET(config = httr::config(ssl_verifypeer = FALSE)) %>% read_html() %>% html_nodes(xpath='//*[@id="post-14376"]/div[2]/div[2]/table') %>% html_table() %>% pluck(1)
 
 # Scrape the data for the old rolling stone top 500 list
 url_old <- "https://www.cs.ubc.ca/~davet/music/list/Best9.html"
-rs_old <- url_old %>% read_html() %>% html_nodes(xpath='/html/body/table[2]') %>% html_table() %>% pluck(1) %>% 
+rs_old <- url_old %>%
+  httr::GET(config = httr::config(ssl_verifypeer = FALSE)) %>% read_html() %>% html_nodes(xpath='/html/body/table[2]') %>% html_table() %>% pluck(1) %>% 
   select(1, 4, 3, 7) %>% rename(Rank = X1, Artist = X3, Song = X4, Year = X7) %>% filter(Year != "YEAR") 
 
 ### Question 1 ---------- 
@@ -35,6 +37,9 @@ rs_old <- url_old %>% read_html() %>% html_nodes(xpath='/html/body/table[2]') %>
 rs_joined_orig <- full_join(rs_old, rs_new, by = c("Artist", "Song"))
 nrow(rs_joined_orig)
 
+# Let's check
+rs_joined_orig <- rs_joined_orig %>% arrange(Artist,Song)
+
 ### Question 2 ---------- 
 
 # To clean up the datasets, it would be more efficient to put them into a single data set
@@ -47,6 +52,9 @@ nrow(rs_joined_orig)
 rs_old <- rs_old %>% mutate(Rank = as.integer(Rank), Year = as.integer(Year), Source = "Old")
 rs_new <- rs_new %>% mutate(Source = "New")
 rs_all <- bind_rows(rs_new, rs_old)
+
+# Let's check
+rs_all <- rs_all %>% arrange(Artist,Song)
 
 ### Question 3 ----------
 
@@ -82,6 +90,9 @@ temp_new <- rs_all %>% filter(Source == "New")
 temp_old <- rs_all %>% filter(Source == "Old")
 rs_joined <- full_join(temp_old, temp_new, by = c("Artist", "Song"), suffix = c("_Old","_New"))
 nrow(rs_joined)
+
+# Let's check
+rs_joined <- rs_joined %>% arrange(Artist,Song)
 
 ### Question 5 ----------
 
@@ -137,6 +148,9 @@ fct_count(fct_lump(rs_joined$Decade, 3), prop = T)
 top20 <- read_csv("top_20.csv")
 top20 <- top20 %>% mutate(Release_Date = parse_date_time(Release, "%d-%b-%Y"))
 
+# looks like this also works
+parse_date_time(top20$Release, "d-m-y")
+
 ### Question 9 --------
 
 # top20's Style and Value are mixing two different variables into one column
@@ -146,6 +160,9 @@ top20 <- top20 %>% mutate(Release_Date = parse_date_time(Release, "%d-%b-%Y"))
 #ANSWER
 
 top20 <- top20 %>% pivot_wider(names_from = "Style", values_from = "Value")
+
+# tidyverse is kind of cool in that a lot its function calling upon variables can handle both quotations and without quotations
+top20 %>% pivot_wider(names_from = Style, values_from = Value)
 
 ### Question 10 ---------
 
@@ -159,6 +176,7 @@ top20 <- top20 %>% pivot_wider(names_from = "Style", values_from = "Value")
 #ANSWER
 
 top20 <- left_join(top20, rs_joined, by = c("Artist","Song"))
+# we use left_join because full_join would be a bunch of NAs for the columns not in rs_joined since it has more elements
 top20 <- top20 %>% mutate(Release_Month = month(Release_Date, label = T),
                           Season = fct_collapse(Release_Month,
                                                 Winter = c("Dec", "Jan","Feb"),
@@ -166,6 +184,13 @@ top20 <- top20 %>% mutate(Release_Month = month(Release_Date, label = T),
                                                 Summer = c("Jun", "Jul","Aug"),
                                                 Fall = c("Sep", "Oct", "Nov")))
 fct_count(top20$Season)
+
+# Could also make it a little more succint/briefer if you want
+top20 %>% mutate(Season = fct_collapse(month(Release_Date, label = T),
+                                       Winter = c("Dec", "Jan","Feb"),
+                                       Spring = c("Mar","Apr","May"),
+                                       Summer = c("Jun", "Jul","Aug"),
+                                       Fall = c("Sep", "Oct", "Nov")))
 
 ### Question 11 ---------
 
@@ -178,3 +203,8 @@ fct_count(top20$Season)
 
 top20 <- top20 %>% mutate(Quality = factor(ifelse(str_detect(Key, "m"), "Minor", "Major")))
 top20 %>% filter(Quality == "Minor") %>% slice_min(Rank_New)
+
+# Interesting alternative:
+top20 <- top20 %>% 
+  mutate(Quality = case_when(endsWith(Key, "m") ~ "Minor")) %>% 
+  mutate(Quality = replace_na(Quality, "Major"))
